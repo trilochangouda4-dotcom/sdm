@@ -1,0 +1,242 @@
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ChatalkApp</title>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<style>
+body { font-family:'Segoe UI',sans-serif; margin:0; padding:0; background:#f0f2f5; }
+header { background:linear-gradient(135deg,#4c8bf5,#2f6ad1); color:white; padding:18px; text-align:center; font-size:22px; font-weight:bold; }
+nav { display:flex; justify-content:space-around; background:#ffffff; padding:12px 0; box-shadow:0 2px 5px rgba(0,0,0,0.1); }
+nav button { background:none; border:none; font-size:16px; cursor:pointer; padding:5px 10px; border-radius:5px; }
+.active-tab { font-weight:bold; border-bottom:3px solid #4c8bf5; color:#4c8bf5; }
+.container { padding:15px; max-width:650px; margin:auto; }
+.post { background:white; padding:12px; margin-bottom:12px; border-radius:12px; box-shadow:0 2px 5px rgba(0,0,0,0.1); }
+input, textarea { width:100%; padding:10px; margin:5px 0; border-radius:8px; border:1px solid #ccc; }
+button { background:#4c8bf5; color:white; padding:8px 15px; border:none; border-radius:8px; cursor:pointer; transition:0.3s; }
+button:hover { background:#2f6ad1; }
+.tab-content { display:none; }
+.tab-content.active { display:block; }
+img { max-width:100%; border-radius:10px; margin-top:8px; }
+.post-time { color:#666; font-size:12px; margin-top:5px; }
+</style>
+</head>
+<body>
+
+<header>ChatalkApp</header>
+<nav>
+  <button id="tab-feed" class="active-tab">Feed</button>
+  <button id="tab-my-posts">My Posts</button>
+  <button id="tab-profile">Profile</button>
+</nav>
+
+<div class="container">
+
+<!-- Auth Section -->
+<div id="auth-section">
+  <h2>Login / Sign Up</h2>
+  <input type="email" id="email" placeholder="Email">
+  <input type="password" id="password" placeholder="Password">
+  <button id="login-btn">Login</button>
+  <button id="signup-btn">Sign Up</button>
+  <p id="auth-msg" style="color:red;"></p>
+</div>
+
+<!-- Feed Tab -->
+<div id="feed-tab" class="tab-content active">
+  <h3>Create Post</h3>
+  <textarea id="post-text" placeholder="What's on your mind?"></textarea>
+  <input type="file" id="post-image" accept="image/*">
+  <button id="post-btn">Post</button>
+  <hr>
+  <div id="feed"></div>
+</div>
+
+<!-- My Posts Tab -->
+<div id="my-posts-tab" class="tab-content">
+  <h3>My Posts</h3>
+  <div id="my-posts"></div>
+</div>
+
+<!-- Profile Tab -->
+<div id="profile-tab" class="tab-content">
+  <h3>Profile</h3>
+  <p>Name: <span id="profile-name"></span></p>
+  <p>Bio: <span id="profile-bio"></span></p>
+  <p>Followers: <span id="followers-count">0</span> | Following: <span id="following-count">0</span></p>
+  <h4>Edit Profile</h4>
+  <input type="text" id="edit-name" placeholder="Name">
+  <input type="text" id="edit-bio" placeholder="Bio">
+  <button id="save-profile-btn">Save Profile</button>
+</div>
+
+</div>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyBxY0do9AYlt9NSHEA0jvUAHhKiOhnctt0",
+  authDomain: "chatbot-bd1b4.firebaseapp.com",
+  databaseURL: "https://chatbot-bd1b4-default-rtdb.firebaseio.com",
+  projectId: "chatbot-bd1b4",
+  storageBucket: "chatbot-bd1b4.firebasestorage.app",
+  messagingSenderId: "178313205826",
+  appId: "1:178313205826:web:e4622b7f328e541ea775db",
+  measurementId: "G-Q217QD5HH9"
+};
+firebase.initializeApp(firebaseConfig);
+
+const auth = firebase.auth();
+const db = firebase.database();
+let currentUser = null;
+
+// Auth
+const authSection = document.getElementById('auth-section');
+const loginBtn = document.getElementById('login-btn');
+const signupBtn = document.getElementById('signup-btn');
+const authMsg = document.getElementById('auth-msg');
+
+loginBtn.onclick = () => {
+  const email = document.getElementById('email').value;
+  const pass = document.getElementById('password').value;
+  if(!email||!pass){ authMsg.innerText="Enter email/password"; return; }
+  auth.signInWithEmailAndPassword(email, pass)
+    .catch(err=>authMsg.innerText=err.message);
+};
+
+signupBtn.onclick = () => {
+  const email = document.getElementById('email').value;
+  const pass = document.getElementById('password').value;
+  if(!email||!pass){ authMsg.innerText="Enter email/password"; return; }
+  auth.createUserWithEmailAndPassword(email, pass)
+    .then(res=>{
+      const user = res.user;
+      db.ref('users/'+user.uid).set({name:'', bio:'', followers:0, following:0});
+    })
+    .catch(err=>authMsg.innerText=err.message);
+};
+
+// Persistent login
+auth.onAuthStateChanged(user => {
+  if(user){
+    currentUser = user;
+    authSection.style.display = 'none';
+    document.getElementById('feed-tab').classList.add('active');
+    loadFeed(); loadProfile(); loadMyPosts();
+  } else {
+    currentUser = null;
+    authSection.style.display = 'block';
+    document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
+  }
+});
+
+// Tabs
+document.getElementById('tab-feed').onclick = ()=>{switchTab('feed-tab'); loadFeed();};
+document.getElementById('tab-my-posts').onclick = ()=>{switchTab('my-posts-tab'); loadMyPosts();};
+document.getElementById('tab-profile').onclick = ()=>{switchTab('profile-tab'); loadProfile();};
+
+function switchTab(tabId){
+  document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
+  document.getElementById(tabId).classList.add('active');
+  document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active-tab'));
+  if(tabId==='feed-tab') document.getElementById('tab-feed').classList.add('active-tab');
+  if(tabId==='my-posts-tab') document.getElementById('tab-my-posts').classList.add('active-tab');
+  if(tabId==='profile-tab') document.getElementById('tab-profile').classList.add('active-tab');
+}
+
+// Create post
+document.getElementById('post-btn').onclick = () => {
+  const text = document.getElementById('post-text').value;
+  const file = document.getElementById('post-image').files[0];
+  if(!text && !file) return alert('Enter text or select an image');
+
+  if(file){
+    const reader = new FileReader();
+    reader.onload = function(e){ savePost(text, e.target.result); }
+    reader.readAsDataURL(file);
+  } else savePost(text, '');
+
+  document.getElementById('post-text').value='';
+  document.getElementById('post-image').value='';
+};
+
+function savePost(text, image){
+  const postId = db.ref('posts').push().key;
+  db.ref('posts/'+postId).set({uid: currentUser.uid, text, image, timestamp: Date.now()});
+}
+
+// Load feed
+function loadFeed(){
+  if(!currentUser) return;
+  db.ref('posts').on('value', snap=>{
+    const feed = document.getElementById('feed'); feed.innerHTML='';
+    const posts = snap.val(); if(!posts) return;
+    Object.keys(posts).sort((a,b)=>posts[b].timestamp-posts[a].timestamp).forEach(pid=>{
+      const p = posts[pid];
+      db.ref('users/'+p.uid).once('value').then(u=>{
+        const user = u.val();
+        const div = document.createElement('div'); div.className='post';
+        const date = new Date(p.timestamp);
+        div.innerHTML = `<div><strong>${user.name||'User'}:</strong> ${p.text||''}
+          ${p.image?`<br><img src="${p.image}">`:''}
+          <div class="post-time">${date.toLocaleString()}</div>
+        </div>`;
+        feed.appendChild(div);
+      });
+    });
+  });
+}
+
+// Load My Posts
+function loadMyPosts(){
+  if(!currentUser) return;
+  db.ref('posts').on('value', snap=>{
+    const myPostsDiv = document.getElementById('my-posts'); myPostsDiv.innerHTML='';
+    const posts = snap.val(); if(!posts) return;
+    Object.keys(posts).filter(pid=>posts[pid].uid===currentUser.uid)
+      .sort((a,b)=>posts[b].timestamp-posts[a].timestamp)
+      .forEach(pid=>{
+        const p = posts[pid]; const div = document.createElement('div'); div.className='post';
+        const date = new Date(p.timestamp);
+        div.innerHTML = `<div>${p.text||''}${p.image?`<br><img src="${p.image}">`:''}
+          <div class="post-time">${date.toLocaleString()}</div></div>
+          <button onclick="editPost('${pid}')">Edit</button>
+          <button onclick="deletePost('${pid}')">Delete</button>`;
+        myPostsDiv.appendChild(div);
+      });
+  });
+}
+
+// Profile
+function loadProfile(){
+  if(!currentUser) return;
+  db.ref('users/'+currentUser.uid).on('value', snap=>{
+    const user = snap.val(); if(!user) return;
+    document.getElementById('profile-name').innerText = user.name||'';
+    document.getElementById('profile-bio').innerText = user.bio||'';
+    document.getElementById('followers-count').innerText = user.followers||0;
+    document.getElementById('following-count').innerText = user.following||0;
+  });
+}
+
+document.getElementById('save-profile-btn').onclick = () => {
+  const name = document.getElementById('edit-name').value;
+  const bio = document.getElementById('edit-bio').value;
+  const updates = {}; if(name) updates.name=name; if(bio) updates.bio=bio;
+  db.ref('users/'+currentUser.uid).update(updates);
+}
+
+// Edit/Delete posts
+function editPost(pid){
+  const newText = prompt('Edit your post text:');
+  if(newText!==null) db.ref('posts/'+pid).update({text:newText});
+}
+function deletePost(pid){ if(confirm('Delete this post?')) db.ref('posts/'+pid).remove(); }
+
+</script>
+</body>
+</html>
